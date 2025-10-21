@@ -215,7 +215,7 @@ async function processTextWithAI(text, requestType = 'summarize', difficulty = '
 //   res.json({message: 'AI Study Buddy API is running!'});
 // });
 
-app.get('/api/health', (req, res) => {
+app.get('/health', (req, res) => {
   res.json({status: 'OK', timestamp: new Date().toISOString()});
 });
 
@@ -237,7 +237,7 @@ app.get('/models', async (req, res) => {
 });
 
 // Test endpoint for Google AI API
-app.get('/api/test-ai', async (req, res) => {
+app.get('/test-ai', async (req, res) => {
   try {
     console.log('Testing Google AI API...');
     console.log('API Key exists:', !!process.env.GOOGLE_AI_API_KEY);
@@ -292,7 +292,7 @@ app.get('/api/test-ai', async (req, res) => {
 });
 
 // Main processing endpoint
-app.post('/api/process-image', upload.single('image'), async (req, res) => {
+app.post('/process-image', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({error: 'No image file provided'});
@@ -356,7 +356,7 @@ app.post('/api/process-image', upload.single('image'), async (req, res) => {
 });
 
 // Text-only processing endpoint (for when user wants to process extracted text differently)
-app.post('/api/process-text', async (req, res) => {
+app.post('/process-text', async (req, res) => {
   try {
     const {text, requestType = 'summarize', difficulty = 'medium'} = req.body;
 
@@ -397,24 +397,24 @@ app.use((error, req, res, next) => {
 // app.use('*', (req, res) => {
 //   res.status(404).json({error: 'Route not found'});
 // });
-if (process.env.NODE_ENV === 'development') {
-  app.listen(PORT, () => {
-    console.log(`🚀 AI Study Buddy server running on port ${PORT}`);
-    console.log(`📚 Ready to help students learn!`);
-  });
-}
+// if (process.env.NODE_ENV === 'development') {
+//   app.listen(PORT, () => {
+//     console.log(`🚀 AI Study Buddy server running on port ${PORT}`);
+//     console.log(`📚 Ready to help students learn!`);
+//   });
+// }
 
 // deployment
-const dirname1 = path.resolve();
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(dirname1, '../client/build')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.resolve(dirname1, '../client/build/index.html'));
-  });
-} else {
-  app.get('/', (req, res) => {
-    res.send('AI Study Buddy API is running!');
-  });
-}
+// const dirname1 = path.resolve();
+// if (process.env.NODE_ENV === 'production') {
+//   app.use(express.static(path.join(dirname1, '../client/build')));
+//   app.get('*', (req, res) => {
+//     res.sendFile(path.resolve(dirname1, '../client/build/index.html'));
+//   });
+// } else {
+//   app.get('/', (req, res) => {
+//     res.send('AI Study Buddy API is running!');
+//   });
+// }
 
 module.exports = app;
