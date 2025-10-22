@@ -13,9 +13,12 @@ const PORT = process.env.PORT || 8081;
 // Initialize Google AI
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
 
+// When running behind a reverse proxy (e.g. Vercel), trust proxy so req.ip uses X-Forwarded-For
+app.set('trust proxy', 1);
+
 app.use(
   cors({
-    origin: 'https://ai-study-buddy-frontend-gamma.vercel.app/',
+    origin: 'https://ai-study-buddy-frontend-gamma.vercel.app',
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type'],
   })
@@ -34,12 +37,14 @@ app.use(express.json({limit: '10mb'}));
 app.use(express.urlencoded({extended: true, limit: '10mb'}));
 
 // Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
-});
-app.use(limiter);
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100, // limit each IP to 100 requests per windowMs
+//   message: 'Too many requests from this IP, please try again later.',
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
+// app.use(limiter);
 
 async function listGeminiModels() {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GOOGLE_AI_API_KEY}`;
@@ -89,8 +94,17 @@ async function extractTextFromImage(imageBuffer, mimeType) {
   try {
     console.log('Creating Tesseract worker...');
 
-    // Create worker with minimal configuration to avoid errors
-    worker = await createWorker('eng');
+    // Explicitly provide paths so the serverless bundle can load them
+    const corePath = require.resolve('tesseract.js-core/tesseract-core-simd.js');
+    const workerPath = require.resolve('tesseract.js/dist/worker.min.js');
+    const langPath = __dirname; // contains eng.traineddata
+
+    // Create worker with explicit paths
+    worker = await createWorker('eng', {
+      corePath,
+      workerPath,
+      langPath,
+    });
 
     console.log('Worker created, starting recognition...');
 
