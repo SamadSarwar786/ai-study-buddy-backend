@@ -321,7 +321,9 @@ app.post('/process-image', upload.single('image'), async (req, res) => {
     // Add a small delay to ensure proper initialization
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const extractedText = await extractTextFromImage(req.file.buffer, req.file.mimetype);
+    const extractedText =
+      'Hello, world! how are you?, My name is John Doe, I am a student at the University of California, Los Angeles.';
+    // await extractTextFromImage(req.file.buffer, req.file.mimetype);
 
     if (!extractedText || extractedText.trim().length < 5) {
       return res.status(400).json({
