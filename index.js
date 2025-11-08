@@ -307,7 +307,7 @@ app.post('/process-image', upload.single('image'), async (req, res) => {
     console.log(`Image info: ${req.file.mimetype}, size: ${req.file.size} bytes`);
 
     // Use Gemini Vision to do both OCR and AI processing in ONE call
-    const model = genAI.getGenerativeModel({model: 'gemini-1.5-flash'});
+    const model = genAI.getGenerativeModel({model: 'gemini-2.5-flash'});
 
     // Convert buffer to base64
     const base64Image = req.file.buffer.toString('base64');
