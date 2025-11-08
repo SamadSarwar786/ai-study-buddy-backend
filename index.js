@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const {createWorker} = require('tesseract.js');
 const {GoogleGenerativeAI} = require('@google/generative-ai');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
@@ -87,36 +86,35 @@ const upload = multer({
   },
 });
 
-// OCR function
+// OCR function using Gemini Vision API (much faster for serverless)
 async function extractTextFromImage(imageBuffer, mimeType) {
-  let worker;
-
   try {
-    console.log('Creating Tesseract worker...');
+    console.log('Extracting text using Gemini Vision API...');
 
-    // Explicitly provide paths so the serverless bundle can load them
-    const corePath = require.resolve('tesseract.js-core/tesseract-core-simd.js');
-    const workerPath = require.resolve('tesseract.js/dist/worker.min.js');
-    const langPath = __dirname; // contains eng.traineddata
+    // Use Gemini's vision model for OCR
+    const model = genAI.getGenerativeModel({model: 'gemini-1.5-flash'});
 
-    // Create worker with explicit paths
-    worker = await createWorker('eng', {
-      corePath,
-      workerPath,
-      langPath,
-    });
+    // Convert buffer to base64
+    const base64Image = imageBuffer.toString('base64');
 
-    console.log('Worker created, starting recognition...');
+    // Determine the correct mime type format for Gemini
+    const imagePart = {
+      inlineData: {
+        data: base64Image,
+        mimeType: mimeType,
+      },
+    };
 
-    // Process the image with minimal parameters
-    const {
-      data: {text, confidence},
-    } = await worker.recognize(imageBuffer);
+    const prompt = 'Extract all the text from this image. Return only the text content, nothing else.';
 
-    console.log(`OCR completed. Confidence: ${confidence}%`);
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = await result.response;
+    const extractedText = response.text();
+
+    console.log(`Text extraction completed. Length: ${extractedText.length} characters`);
 
     // Clean up the extracted text
-    const cleanedText = text.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+    const cleanedText = extractedText.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
 
     return cleanedText;
   } catch (error) {
@@ -126,15 +124,6 @@ async function extractTextFromImage(imageBuffer, mimeType) {
       mimeType: mimeType,
     });
     throw new Error(`OCR processing failed: ${error.message}`);
-  } finally {
-    if (worker) {
-      try {
-        await worker.terminate();
-        console.log('Worker terminated successfully');
-      } catch (terminateError) {
-        console.error('Error terminating worker:', terminateError);
-      }
-    }
   }
 }
 
@@ -305,7 +294,7 @@ app.get('/test-ai', async (req, res) => {
   }
 });
 
-// Main processing endpoint
+// Main processing endpoint - OPTIMIZED: Single Gemini call for both OCR + AI processing
 app.post('/process-image', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
@@ -314,16 +303,108 @@ app.post('/process-image', upload.single('image'), async (req, res) => {
 
     const {requestType = 'summarize', difficulty = 'medium'} = req.body;
 
-    // Extract text from image using OCR
-    console.log('Extracting text from image...');
+    console.log('Processing image with Gemini Vision API (single call)...');
     console.log(`Image info: ${req.file.mimetype}, size: ${req.file.size} bytes`);
 
-    // Add a small delay to ensure proper initialization
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Use Gemini Vision to do both OCR and AI processing in ONE call
+    const model = genAI.getGenerativeModel({model: 'gemini-1.5-flash'});
 
-    const extractedText =
-      'Hello, world! how are you?, My name is John Doe, I am a student at the University of California, Los Angeles.';
-    // await extractTextFromImage(req.file.buffer, req.file.mimetype);
+    // Convert buffer to base64
+    const base64Image = req.file.buffer.toString('base64');
+
+    const imagePart = {
+      inlineData: {
+        data: base64Image,
+        mimeType: req.file.mimetype,
+      },
+    };
+
+    // Build a combined prompt that extracts text AND processes it in one go
+    let combinedPrompt;
+
+    switch (requestType) {
+      case 'summarize':
+        combinedPrompt = `Extract all the text from this image, then summarize it in 3 key points. 
+        
+Format your response as JSON:
+{
+  "extractedText": "the full extracted text here",
+  "aiResponse": "your 3-point summary here"
+}`;
+        break;
+
+      case 'explain':
+        combinedPrompt = `Extract all the text from this image, then explain it in simple words that are easy to understand. Break down complex concepts.
+        
+Format your response as JSON:
+{
+  "extractedText": "the full extracted text here",
+  "aiResponse": "your simple explanation here"
+}`;
+        break;
+
+      case 'quiz':
+        combinedPrompt = `Extract all the text from this image, then generate 5 multiple-choice quiz questions with 4 options each.
+        
+Format your response as JSON:
+{
+  "extractedText": "the full extracted text here",
+  "aiResponse": {
+    "questions": [
+      {
+        "question": "Question text",
+        "options": ["A", "B", "C", "D"],
+        "correct": 0
+      }
+    ]
+  }
+}`;
+        break;
+
+      case 'notes':
+        combinedPrompt = `Extract all the text from this image, then convert it into well-organized study notes with bullet points and key concepts highlighted.
+        
+Format your response as JSON:
+{
+  "extractedText": "the full extracted text here",
+  "aiResponse": "your organized study notes here"
+}`;
+        break;
+
+      default:
+        combinedPrompt = `Extract all the text from this image, then analyze and explain it.
+        
+Format your response as JSON:
+{
+  "extractedText": "the full extracted text here",
+  "aiResponse": "your analysis here"
+}`;
+    }
+
+    // Single API call does everything!
+    const result = await model.generateContent([combinedPrompt, imagePart]);
+    const response = await result.response;
+    const responseText = response.text();
+
+    console.log('Gemini response received, parsing...');
+
+    // Parse the JSON response
+    let parsedResponse;
+    try {
+      // Clean up markdown code blocks if present
+      const cleanedResponse = responseText
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      parsedResponse = JSON.parse(cleanedResponse);
+    } catch (parseError) {
+      console.error('Failed to parse JSON response:', parseError);
+      console.log('Raw response:', responseText);
+      // Fallback: try to extract text manually
+      throw new Error('Failed to parse AI response. Please try again.');
+    }
+
+    const {extractedText, aiResponse} = parsedResponse;
 
     if (!extractedText || extractedText.trim().length < 5) {
       return res.status(400).json({
@@ -333,15 +414,12 @@ app.post('/process-image', upload.single('image'), async (req, res) => {
     }
 
     console.log(`Extracted text length: ${extractedText.length} characters`);
-
-    console.log('Processing text with AI...');
-    // Process text with Google AI
-    const aiResponse = await processTextWithAI(extractedText, requestType, difficulty);
+    console.log('AI processing completed in single call!');
 
     res.json({
       success: true,
       extractedText: extractedText,
-      aiResponse: aiResponse,
+      aiResponse: typeof aiResponse === 'string' ? aiResponse : JSON.stringify(aiResponse),
       requestType: requestType,
       timestamp: new Date().toISOString(),
     });
@@ -349,17 +427,11 @@ app.post('/process-image', upload.single('image'), async (req, res) => {
     console.error('Processing error:', error);
 
     // Handle specific error types
-    if (error.message.includes('OCR processing failed')) {
-      res.status(400).json({
-        error: 'Failed to extract text from image',
-        details: 'The image may be unclear, corrupted, or contain no readable text. Please try a different image.',
-        suggestion: 'Ensure the image is clear, well-lit, and contains readable text.',
-      });
-    } else if (error.message.includes('Failed to process text with AI')) {
+    if (error.message.includes('Failed to parse')) {
       res.status(500).json({
-        error: 'AI processing failed',
-        details: 'There was an issue processing your text with AI. Please try again.',
-        suggestion: 'If the problem persists, try with a shorter text or different image.',
+        error: 'AI response processing failed',
+        details: 'The AI returned an unexpected format. Please try again.',
+        suggestion: 'If the problem persists, try with a different image.',
       });
     } else {
       res.status(500).json({
